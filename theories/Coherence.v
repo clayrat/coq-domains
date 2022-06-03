@@ -219,6 +219,13 @@ apply: ltE.
 by move=>c /= [b][[a][Ha Hf] Hb]; exists a; split=>//; exists b.
 Qed.
 
+(* Equivalence *)
+
+Definition lequiv (A B : space) : Type :=
+  (A --o B) * (B --o A).
+
+Infix "o--o" := lequiv (at level 60, right associativity) : coh_scope.
+
 (** ** Linear isomorphisms *)
 (*
 Record liso (A B : space) :=
@@ -234,30 +241,31 @@ Record liso (A B : space) :=
 Arguments liso_of {A B}.
 Infix "=~=" := liso (at level 70, right associativity) : type_scope.
 
-Program Definition li_fw {A B} (f : A ~= B) :=
+Program Definition li_fw {A B} (f : A =~= B) : A --o B :=
   {|
-    lmaps := liso_of f;
+    has '(a, b) := liso_of f a b;
   |}.
 Next Obligation.
-  destruct f as [f Hf]; cbn in *.
-  destruct (Hf a1 a2 b1 b2) as [? ?]; auto.
-  firstorder.
+move=>A B [l H] [a1 b1][a2 b2] /= L1 L2 Ca.
+by case: (H _ _ _ _ L1 L2)=>Hc He; split; [apply/Hc | move/He].
 Qed.
 
-Program Definition li_bw {A B} (f : A ~= B) :=
+Program Definition li_bw {A B} (f : A =~= B) : B --o A :=
   {|
-    lmaps x y := liso_of f y x;
+    has '(a, b) := liso_of f b a;
   |}.
 Next Obligation.
-  destruct f as [f Hf]; cbn in *.
-  destruct (Hf b1 b2 a1 a2) as [? ?]; auto.
-  firstorder.
+move=>A B [l H] [a1 b1][a2 b2] /= L1 L2 Ca.
+by case: (H _ _ _ _ L1 L2)=>Hc He; split; [apply/Hc | move/He].
 Qed.
 
-Lemma li_bw_fw {A B} (f : A ~= B) :
+Lemma li_bw_fw {A B} (f : A =~= B) :
   li_fw f @ li_bw f = lmap_id.
 Proof.
-  apply lmap_ext; intros x y.
+apply: lmap_ext=>x y; case: f=>l H /=; split.
+- case=>z [L1 L2].
+  by case: (H _ _ _ _ L1 L2)=>_ He; apply/He.
+move=>->. exists y.
   destruct f as [f Hf]; cbn in *.
   split.
   - intros (b & Hxb & Hby). cbn in *.
@@ -376,6 +384,17 @@ apply: lmap_ext=>/= z x; split.
 by case=>y [<- ->].
 Qed.
 
+(* Partial functions *)
+
+Program Definition pmap (A B : space) : space :=
+  {|
+    token := token A * token B;
+    coh '(a1, b1) '(a2, b2) := a1 = a2 -> b1 = b2;
+  |}.
+Next Obligation. by move=>A B [a1 b1]. Qed.
+Next Obligation.
+by move=>A B [a1 b1][a2 b2] H E; rewrite H.
+Qed.
 
 (** * Cartesian structure *)
 
@@ -383,7 +402,7 @@ Qed.
 
 (** *** Definition *)
 
-Inductive csprod_coh {A B} (RA : relation A) (RB : relation B) : relation (A + B) :=
+Variant csprod_coh {A B} (RA : relation A) (RB : relation B) : relation (A + B) :=
   | inl_coh x y : RA x y -> csprod_coh RA RB (inl x) (inl y)
   | inr_coh x y : RB x y -> csprod_coh RA RB (inr x) (inr y)
   | inl_inr_coh x y : csprod_coh RA RB (inl x) (inr y)
@@ -655,25 +674,25 @@ Next Obligation. by []. Qed.
 
 Notation "1" := csunit : coh_scope.
 
-(*
 (** Left unitor *)
 
 Program Definition lam A : 1 * A --o A :=
   {|
+     has '((_, a), b) := a = b;
+  |}.
 Next Obligation.
-  destruct H; auto.
+by move=>A [[[] a1] b1][[[] a2] b2] /= ->-> [_ H]; split=>// ->.
 Qed.
 
 (** Right unitor *)
 
 Program Definition rho A : A * 1 --o A :=
   {|
-    lmap_apply a := (a, tt);
+  has '((a, _), b) := a = b;
   |}.
 Next Obligation.
-  destruct H; auto.
+by move=>A [[a1 []] b1][[a2 []] b2] /= ->-> [H _]; split=>// ->.
 Qed.
-*)
 
 (* etc.. *)
 
@@ -687,11 +706,14 @@ Variant lneg_token A :=
 
 Arguments ln {A}.
 
-(* TODO define anticlique? *)
+Definition incoh A : relation (token A) :=
+  fun x y => coh x y -> x = y.
+
+Arguments incoh {_}.
 
 Variant lneg_coh (A : space) : relation (lneg_token A) :=
   lneg_coh_intro x y :
-    (coh x y -> x = y) -> lneg_coh A (ln x) (ln y).
+    incoh x y -> lneg_coh A (ln x) (ln y).
 
 Program Definition lneg (A : space) : space :=
   {|
@@ -720,6 +742,29 @@ have H := coh_refl _ a2.
 by case: (lmap_cohdet _ _ _ _ _ H H1 H2)=>/E->.
 Qed.
 
+Program Definition neg_inv_t {A} : A --o lneg (lneg A) :=
+  {|
+    has '(a, ln (ln b)) := a = b;
+  |}.
+Next Obligation.
+move=>A [a1 [[b1]]][a2 [[b2]]] {a1}->{a2}->/= H; split; last by case.
+apply: lneg_coh_intro=>/= H2.
+case: {-1}_ {-1}_ / H2 (erefl (ln b1)) (erefl (ln b2)) H.
+by move=>x y E [->][->] /E ->.
+Qed.
+
+(*
+Program Definition neg_inv_f {A} : lneg (lneg A) --o A :=
+  {|
+    has '(ln (ln a), b) := a = b;
+  |}.
+Next Obligation.
+move=>A [[[a1]] b1][[[a2]] b2] /=.
+move=>E1 E2 H.
+case: {-1}_ {-1}_ / H (erefl (@ln (lneg _) (ln a1))) (erefl (@ln (lneg _) (ln a2))).
+move=>[x][y]; rewrite /incoh /= => H [Ex][Ey].
+rewrite {a1}Ex in E1; rewrite {a2}Ey in E2.
+*)
 
 (** * Sequential constructions *)
 
@@ -1120,4 +1165,26 @@ Lemma dag_ext_compose {A B C} (f : !A --o B) (g : !B --o C) :
 Proof.
 by rewrite /dag_ext lmap_compose_assoc -(lmap_compose_assoc (dag_comult B))
   -dag_comult_natural !(dag_compose, lmap_compose_assoc) dag_comult_comult.
+Qed.
+
+(* par *)
+
+Variant cspar_coh {A B} (RA : relation A) (RB : relation B) : relation (A * B) :=
+  | par1_coh xa xb ya yb : RA xa xb -> xa <> xb -> cspar_coh RA RB (xa, ya) (xb, yb)
+  | par2_coh xa xb ya yb : RB ya yb -> ya <> yb -> cspar_coh RA RB (xa, ya) (xb, yb)
+  | parE_coh xa xb ya yb : xa = xb  -> ya = yb  -> cspar_coh RA RB (xa, ya) (xb, yb).
+
+Program Definition cspar (A B : space) : space :=
+  {|
+    token := token A * token B;
+    coh := cspar_coh coh coh;
+  |}.
+Next Obligation.
+by move=>A B [a b]; apply: parE_coh.
+Qed.
+Next Obligation.
+move=>A B [a1 b1][a2 b2]; case=>{a1 b1 a2 b2}xa xb ya yb.
+- by move=>H E; apply: par1_coh; [apply/coh_symm | move=>Eq; apply: E].
+- by move=>H E; apply: par2_coh; [apply/coh_symm | move=>Eq; apply: E].
+by move=>->->; apply: parE_coh.
 Qed.
