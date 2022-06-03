@@ -711,7 +711,7 @@ Program Definition lmap_flip {A B} (f : A --o B) : lneg B --o lneg A :=
   |}.
 Next Obligation.
 move=>A B f [[b1 [a1]] [[b2][a2]]] H1 H2 /= H.
-case: {-1}_ {-1}_ / H (erefl (ln b1) ) (erefl (ln b2)) => a b E [E1][E2].
+case: {-1}_ {-1}_ / H (erefl (ln b1) ) (erefl (ln b2))=>a b E [E1][E2].
 rewrite {b1}E1 in H1; rewrite {b2}E2 in H2; split.
 - apply: lneg_coh_intro=>H.
   by case: (lmap_cohdet _ _ _ _ _ H H1 H2)=>Hb1; apply; apply: E.
@@ -771,6 +771,13 @@ Inductive seq_coh (A : space) : relation (seq (token A)) :=
       (a = b -> seq_coh A x y) ->
       seq_coh A (a :: x) (b :: y).
 
+Lemma seq_coh_cons {A} x xs y ys :
+  seq_coh A (x::xs) (y::ys) -> coh x y /\ (x = y -> seq_coh A xs ys).
+Proof.
+move=>H; case: {-1}_ {-1}_ / H (erefl (x :: xs)) (erefl (y :: ys))=>//.
+by move=>p q ps qs H E [{x}->{xs}->][{y}->{ys}->].
+Qed.
+
 Program Definition dag (A : space) : space :=
   {|
     token := seq (token A);
@@ -816,54 +823,83 @@ Lemma suffix_coh {A} s t1 t2 :
   seq_coh A (s ++ t1) (s ++ t2) ->
   seq_coh A t1 t2.
 Proof.
-  induction s; auto. cbn.
-  inversion 1; clear H; subst.
-  auto.
+elim: s=>//=x s IH H.
+by case/seq_coh_cons: H=>_ /(_ erefl)/IH.
 Qed.
 
 Lemma app_coh {A} s t1 t2 :
   seq_coh A t1 t2 ->
   seq_coh A (s ++ t1) (s ++ t2).
 Proof.
-  intros Ht.
-  induction s; auto.
-  cbn. constructor.
-  - reflexivity.
-  - auto.
+move=>Ht; elim: s=>//= x s H.
+by apply: cons_coh=>//; apply: coh_refl.
 Qed.
 
 (** Action on linear maps *)
 
 Inductive dag_lmaps {A B} (f : A --o B) : token !A -> token !B -> Prop :=
   | dag_lmaps_nil :
-      dag_lmaps f nil nil
+      dag_lmaps f [::] [::]
   | dag_lmaps_cons a b aa bb :
       has f (a, b) ->
       dag_lmaps f aa bb ->
       dag_lmaps f (a :: aa) (b :: bb).
+
+(* TODO spec lemma? *)
+
+Lemma dag_lmaps_lnil {A B} (f : A --o B) ys :
+  dag_lmaps f [::] ys -> ys = [::].
+Proof.
+by move E: [::]=>e H; case: _ / H (erefl e) E.
+Qed.
+
+Lemma dag_lmaps_rnil {A B} (f : A --o B) xs :
+  dag_lmaps f xs [::] -> xs = [::].
+Proof.
+by move E: [::]=>e H; case: _ / H (erefl e) E.
+Qed.
+
+Lemma dag_lmaps_lcons {A B} (f : A --o B) x xs zs :
+  dag_lmaps f (x::xs) zs -> exists y ys, [/\ zs = y::ys,
+                                             has f (x, y) &
+                                             dag_lmaps f xs ys].
+Proof.
+move E: (x::xs)=>e H; case: _ / H (erefl e) E=>//= a y aa ys H Hs _ [Ex Exs].
+rewrite -{a}Ex in H; rewrite -{aa}Exs in Hs.
+by exists y, ys.
+Qed.
+
+Lemma dag_lmaps_rcons {A B} (f : A --o B) zs y ys :
+  dag_lmaps f zs (y::ys) -> exists x xs, [/\ zs = x::xs,
+                                             has f (x, y) &
+                                             dag_lmaps f xs ys].
+Proof.
+move E: (y::ys)=>e H; case: _ / H (erefl e) E=>//= x b xs bb H Hs _ [Ey Eys].
+rewrite -{b}Ey in H; rewrite -{bb}Eys in Hs.
+by exists x, xs.
+Qed.
 
 Program Definition dag_lmap {A B} (f : A --o B) : !A --o !B :=
   {|
     has '(aa, bb) := dag_lmaps f aa bb;
   |}.
 Next Obligation.
-  intros A B f [aa1 bb1] [aa2 bb2] Hab1 Hab2 Hxx.
-  revert bb1 bb2 Hab1 Hab2.
-  induction Hxx; intros.
-  - inversion Hab1; clear Hab1; subst.
-    split; [constructor | ].
-    inversion 1; inversion Hab2; congruence.
-  - inversion Hab2; clear Hab2; subst.
-    split; [constructor | ].
-    inversion 1; inversion Hab1; congruence.
-  - inversion Hab1; clear Hab1; subst.
-    inversion Hab2; clear Hab2; subst.
-    split.
-    + constructor; eauto using lmap_coh.
-      intros. apply H1; eauto. eapply lmap_det; eauto.
-    + inversion 1; subst.
-      f_equal; eauto using lmap_det.
-      edestruct H1; eauto using lmap_det.
+move=>A B f [aa1 bb1][aa2 bb2] Hab1 Hab2 /= Hxx.
+elim: {aa1 aa2}Hxx bb1 bb2 Hab1 Hab2.
+- move=>p _ bb2 /dag_lmaps_lnil -> H2; split; first by apply: nil_coh_l.
+  by move=>E; rewrite -{bb2}E in H2; move/dag_lmaps_rnil: H2.
+- move=>q bb1 _ H1 /dag_lmaps_lnil ->; split; first by apply: nil_coh_r.
+  by move=>E; rewrite {bb1}E in H1; move/dag_lmaps_rnil: H1.
+move=>a b p q Hc H IH bb1 bb2.
+case/dag_lmaps_lcons=>b1[bs1][{bb1}-> H1 H11].
+case/dag_lmaps_lcons=>b2[bs2][{bb2}-> H2 H22].
+case: (lmap_cohdet _ _ _ _ _ Hc H1 H2)=>Cb E.
+split.
+- apply: cons_coh=>// /E Eab.
+  by case: (IH Eab _ _ H11 H22).
+case=>Eb Ebb; rewrite Eb in H1; rewrite {bs1}Ebb in H11.
+move: (E Eb)=>{Cb b1 E Eb}Eab; rewrite Eab.
+by case: (IH Eab _ _ H11 H22)=> _ /(_ erefl) ->.
 Qed.
 
 Notation "! f" := (dag_lmap f)
@@ -872,64 +908,54 @@ Notation "! f" := (dag_lmap f)
 Lemma dag_id {A} :
   !(@lmap_id A) = @lmap_id !A.
 Proof.
-  apply lmap_ext. split.
-  - induction 1. constructor.
-    cbn in *. congruence.
-  - intros [ ].
-    induction x; constructor; cbn; auto.
+apply: lmap_ext=>p q/=; split.
+- by elim=>//x y {}p {}q /= -> _ ->.
+by move=>->; elim: q=>[|{}x q IH]; [apply: dag_lmaps_nil | apply: dag_lmaps_cons].
 Qed.
 
 Lemma dag_compose {A B C} (f : A --o B) (g : B --o C) :
   !(g @ f) = !g @ !f.
 Proof.
-  apply lmap_ext. split.
-  - induction 1.
-    + exists nil; split; constructor.
-    + destruct H as (? & ? & ?), IHdag_lmaps as (? & ? & ?).
-      exists (x :: x0). split; constructor; auto.
-  - intros (u & Hxu & Huy). revert y Huy.
-    induction Hxu.
-    + inversion 1. constructor.
-    + inversion 1; subst.
-      constructor; auto.
-      * eexists; eauto.
-      * eapply IHHxu; eauto.
+apply: lmap_ext=>/= xs zs; split.
+- elim=>[|x z /={}xs {}zs [y][Hxy Hyz] _]; first by exists [::]; split; apply: dag_lmaps_nil.
+  by case=>ys [Hxys Hyzs]; exists (y::ys); split; apply: dag_lmaps_cons.
+case=>ys [H]; elim: H zs=>{xs ys}[|x y xs ys H Hs IH] zs.
+- by move/dag_lmaps_lnil=>{zs}->; apply: dag_lmaps_nil.
+case/dag_lmaps_lcons=>w[ws][{zs}-> Hw Hws].
+by apply: dag_lmaps_cons=>/=; [exists y | apply: IH].
 Qed.
 
 (** Counit *)
 
 Inductive dag_counit_lmaps A : token !A -> token A -> Prop :=
-  dag_counit_intro a : dag_counit_lmaps A (a :: nil) a.
+  dag_counit_intro a : dag_counit_lmaps A [::a] a.
 
 Program Definition dag_counit A : !A --o A :=
   {|
     has '(aa, a) := dag_counit_lmaps A aa a;
   |}.
 Next Obligation.
-  intros A [x1 a1] [x2 a2] Hx1 Hx2 Hx.
-  destruct Hx1, Hx2. inversion Hx; clear Hx; subst.
-  split; auto; congruence.
+move=>A /= [x1 _][x2 _][t1][t2] Hx; split; last by move=>->.
+by case/seq_coh_cons: Hx.
 Qed.
 
 Lemma dag_counit_natural {A B} (f : A --o B) :
    f @ dag_counit A = dag_counit B @ !f.
 Proof.
-  apply lmap_ext. split.
-  - intros (a & Ha1 & Ha2).
-    inversion Ha1. subst.
-    eexists; repeat constructor; eauto.
-  - intros (a & Ha1 & Ha2).
-    inversion Ha2. subst.
-    inversion Ha1 as [ | ? ? ? ? ? H]. subst.
-    inversion H. subst.
-    eexists; split; eauto; constructor.
+apply: lmap_ext=>/=xs y; split.
+- case=>_ [[x] H]; exists [::y]; split.
+  - by apply: dag_lmaps_cons=>//; apply: dag_lmaps_nil.
+  by apply: dag_counit_intro.
+case=>ys [H Hy]; case: {-1} _ / Hy (erefl y) (erefl ys) H => _ <- _.
+case/dag_lmaps_rcons=>w[ws][{xs}-> H /dag_lmaps_rnil {ws}->].
+by exists w.
 Qed.
 
 (** Comultiplication *)
 
 Inductive dag_comult_lmaps {A} : token !A -> token !!A -> Prop :=
   | dag_comult_nil :
-      dag_comult_lmaps nil nil
+      dag_comult_lmaps [::] [::]
   | dag_comult_cons s a aa :
       dag_comult_lmaps a aa ->
       dag_comult_lmaps (s ++ a) (s :: aa).
@@ -939,25 +965,20 @@ Program Definition dag_comult A : !A --o !!A :=
     has '(a, aa) := dag_comult_lmaps a aa;
   |}.
 Next Obligation.
-  intros A [a1 aa1] [a2 aa2] H1 H2 Ha.
-  revert a2 aa2 Ha H2.
-  induction H1 as [ | s1 a1 aa1 H1].
-  - split; [constructor | ].
-    intros; subst. inversion H2. auto.
-  - intros a2 aa2 Ha H2.
-    induction H2 as [ | s2 a2 aa2 H2].
-    + split.
-      * constructor.
-      * congruence.
-    + split.
-      * constructor.
-        -- eapply prefix_coh; eauto.
-        -- destruct 1.
-           eapply IHH1; eauto.
-           eapply suffix_coh; eauto.
-      * inversion 1; subst. f_equal.
-        eapply IHH1; eauto.
-        eapply suffix_coh; eauto.
+move=>A /= [a1 aa1][a2 aa2] H1 H2 Ha.
+elim: H1 a2 aa2 Ha H2 => {a1 aa1}.
+- move=>a2 aa2 Ha H2; split; first by apply: nil_coh_l.
+  by case: H2.
+move=>/= s1 a1 aa1 H1 IH a2 aa2 Ha H2.
+elim: H2 Ha=>{a2 aa2}.
+- by move=>_; split=>//; apply: nil_coh_r.
+move=>s2 a2 aa2 H2 IH2 Ha; split.
+- apply: cons_coh.
+  - by apply: (prefix_coh _ _ _ _ Ha).
+  move=>E; rewrite {s1}E in Ha IH2.
+  by move/suffix_coh: Ha=>/IH/(_ H2); case.
+case=>E1 E2; rewrite {s1 IH2}E1 in Ha *.
+by move/suffix_coh: Ha=>/IH/(_ H2); case=>_ /(_ E2) ->.
 Qed.
 
 Lemma dag_lmaps_app {A B} (f : A --o B) a1 a2 b1 b2:
@@ -965,12 +986,8 @@ Lemma dag_lmaps_app {A B} (f : A --o B) a1 a2 b1 b2:
   has !f (a2, b2) ->
   has !f (a1 ++ a2, b1 ++ b2).
 Proof.
-  induction 1.
-  - intuition.
-  - intros Hx.
-    apply IHdag_lmaps in Hx.
-    repeat rewrite <- app_comm_cons.
-    constructor; assumption.
+move=>/=; elim=>//=a b aa bb H Hs IH /IH H2.
+by apply: dag_lmaps_cons.
 Qed.
 
 Lemma dag_lmaps_app_inv {A B} (f : A --o B) a b1 b2:
@@ -980,41 +997,29 @@ Lemma dag_lmaps_app_inv {A B} (f : A --o B) a b1 b2:
     has !f (a1, b1) /\
     has !f (a2, b2).
 Proof.
-  revert a b2. induction b1 as [ | b1x b1xs].
-  - intros a ? ?.
-    exists nil. exists a.
-    split. reflexivity.
-    split. constructor.
-    exact H.
-  - intros a ? Ha.
-    rewrite <- app_comm_cons in Ha.
-    inversion Ha as [ | xa ? ? ? ? Hxa]. subst.
-    apply IHb1xs in Hxa as [xa1 [xa2 [app_eq [Hxa1 Hxa2]]]].
-    exists (xa::xa1). exists xa2.
-    split. subst. apply app_comm_cons.
-    split; try constructor; assumption.
+elim: b1 a b2=>/=[|b bs IH] a b2 H.
+- by exists [::], a; do!split=>//; apply: dag_lmaps_nil.
+case/dag_lmaps_rcons: H=>x[xs][{a}->H Hs].
+case: (IH _ _ Hs)=>xa1[xa2][Ex [Hx1 Hx2]]; rewrite {xs}Ex in Hs *.
+exists (x::xa1), xa2; do!split=>//.
+by apply: dag_lmaps_cons.
 Qed.
 
 Lemma dag_comult_natural {A B} (f : A --o B) :
   !!f @ dag_comult A = dag_comult B @ !f.
 Proof.
-  apply lmap_ext. split.
-  - intros (a & Ha1 & Ha2).
-    revert y Ha2. induction Ha1 as [ | s a aa Ha IHaa].
-    + inversion 1. eexists; split; constructor.
-    + inversion 1 as [ | ? b ? ys Hy Hys]. subst.
-      eapply IHaa in Hys as (bs & Hb1 & Hb2).
-      inversion Ha2. subst.
-      exists (b ++ bs). split. apply dag_lmaps_app; assumption.
-      constructor. assumption.
-  - intros (b & Hb1 & Hb2).
-    revert x Hb1. induction Hb2 as [ | s b bb Hb IHbb].
-    + inversion 1. eexists; split; constructor.
-    + intros x Hx.
-      apply dag_lmaps_app_inv in Hx as [a1 [a2 [? [Ha1 Ha2]]]].
-      subst x. apply IHbb in Ha2 as (xa & ? & ?).
-      exists (a1 :: xa); split. constructor. assumption.
-      constructor; assumption.
+apply: lmap_ext=>/= xs yys; split.
+- case=>xxs [Hxs Hxxs].
+  elim: Hxs yys Hxxs=>[|s a aa H IH] yys.
+  - move/dag_lmaps_lnil=>{yys}->.
+    by exists [::]; split; [apply: dag_lmaps_nil | apply: dag_comult_nil].
+  case/dag_lmaps_lcons=>/=ws[wws][{yys}-> Hw /IH [qs][Hq Hqs]].
+  by exists (ws ++ qs); split; [apply: dag_lmaps_app | apply: dag_comult_cons].
+case=>ys [Hx Hys]; elim: Hys xs Hx=>[|s b bb H IH] xs.
+- move/dag_lmaps_rnil=>{xs}->.
+  by exists [::]; split; [apply: dag_comult_nil | apply: dag_lmaps_nil].
+case/dag_lmaps_app_inv=>xs1[xs2][{xs}->][/= Ha1 /IH [xxs][Hx Hxs]].
+by exists (xs1::xxs); split; [apply: dag_comult_cons | apply: dag_lmaps_cons].
 Qed.
 
 (** Properties *)
