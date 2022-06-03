@@ -960,6 +960,17 @@ Inductive dag_comult_lmaps {A} : token !A -> token !!A -> Prop :=
       dag_comult_lmaps a aa ->
       dag_comult_lmaps (s ++ a) (s :: aa).
 
+Lemma dag_comult_rnil {A} (p : token !A) :
+  dag_comult_lmaps p [::] -> p = [::].
+Proof. by move E: [::]=>e H; case: {-1}_ {-1}_ / H (erefl p) (erefl e) E. Qed.
+
+Lemma dag_comult_rcons {A} (p : token !A) s aa :
+  dag_comult_lmaps p (s::aa) -> exists a, p=s++a /\ dag_comult_lmaps a aa.
+Proof.
+move=>H; case: {-1}_ / H (erefl p) (erefl (s::aa))=>// {p} s1 a aa1 H _ [{s1}<- {aa}->].
+by exists a.
+Qed.
+
 Program Definition dag_comult A : !A --o !!A :=
   {|
     has '(a, aa) := dag_comult_lmaps a aa;
@@ -981,6 +992,7 @@ case=>E1 E2; rewrite {s1 IH2}E1 in Ha *.
 by move/suffix_coh: Ha=>/IH/(_ H2); case=>_ /(_ E2) ->.
 Qed.
 
+(* TODO move under dag_lmaps? *)
 Lemma dag_lmaps_app {A B} (f : A --o B) a1 a2 b1 b2:
   has !f (a1, b1) ->
   has !f (a2, b2) ->
@@ -1027,35 +1039,27 @@ Qed.
 Lemma dag_comult_counit {A} :
   !(dag_counit A) @ (dag_comult A) = @lmap_id !A.
 Proof.
-  apply lmap_ext. split.
-  - cbn. intros (a & Ha1 & Ha2).
-    revert y Ha2. induction Ha1.
-    + inversion 1. reflexivity.
-    + inversion 1 as [ | ? ? ? ? Hsb Hab]. subst.
-      apply IHHa1 in Hab.
-      inversion Hsb. subst. reflexivity.
-  - cbn. intros <-.
-    exists (map (fun x => x::nil) x); split.
-    + induction x.
-      * constructor.
-      * replace (a :: x) with ((a :: nil) ++ x) by reflexivity.
-        constructor. assumption.
-    + induction x; cbn; constructor.
-      constructor. assumption.
+apply: lmap_ext=>/= xs ys; split.
+- case=>xxs [Hc Hd].
+  elim: Hc ys Hd=>/= [|s a aa _ IH] ys.
+  - by move/dag_lmaps_lnil.
+  case/dag_lmaps_lcons=>[w][ws][{ys}->/= Hcu /IH ->].
+  by case: Hcu.
+move=><-; exists (map (fun z=>[::z]) xs); elim: xs=>/=[|x xs [IH1 IH2]].
+- by split; [apply: dag_comult_nil | apply: dag_lmaps_nil].
+split; last by apply: dag_lmaps_cons.
+by rewrite (_ : x::xs = [::x] ++ xs) //; apply: dag_comult_cons.
 Qed.
 
 Lemma dag_counit_comult {A} :
   (dag_counit !A) @ (dag_comult A) = @lmap_id !A.
 Proof.
-  apply lmap_ext. split.
-  - cbn. intros (a & Ha1 & Ha2).
-    inversion Ha2. subst.
-    inversion Ha1 as [ | ? ? ? H]. subst.
-    inversion H. apply app_nil_r.
-  - cbn. intros <-.
-    exists (x::nil); split.
-    + replace x with (x ++ nil) at 1 by apply app_nil_r; repeat constructor.
-    + constructor.
+apply: lmap_ext=>/= xs ys; split.
+- case=>xxs [Hc Hd]; case: Hd Hc=>/= {}ys.
+  rewrite -(cats0 [::ys]); case/dag_comult_rcons=>x [{xs}-> /dag_comult_rnil ->].
+  by rewrite cats0.
+move=><-; exists [::xs]; split=>//.
+by rewrite -{1}(cats0 xs); apply/dag_comult_cons/dag_comult_nil.
 Qed.
 
 Lemma dag_comult_app {A} x y xs ys:
@@ -1063,14 +1067,8 @@ Lemma dag_comult_app {A} x y xs ys:
   has (dag_comult A) (y, ys) ->
   has (dag_comult A) (x ++ y, xs ++ ys).
 Proof.
-  revert y ys.
-  induction 1 as [ | s a aa H IH].
-  - trivial.
-  - intros Hy.
-    apply IH in Hy.
-    replace ((s++a)++y) with (s++(a++y)) by apply app_assoc.
-    rewrite <- app_comm_cons.
-    constructor. assumption.
+move=>H; elim: H y ys=>//= s a aa H IH y ys.
+by move/IH=>Hd; rewrite -catA; apply: dag_comult_cons.
 Qed.
 
 Lemma dag_comult_app_inv {A} a xs ys:
@@ -1080,46 +1078,25 @@ Lemma dag_comult_app_inv {A} a xs ys:
     has (dag_comult A) (x, xs) /\
     has (dag_comult A) (y, ys).
 Proof.
-  revert a ys.
-  induction xs as [| x ? IHxs].
-  - intros a ys Hys.
-    exists nil. exists a.
-    split. reflexivity.
-    split. constructor.
-    apply Hys.
-  - intros a ys Hys.
-    rewrite <- app_comm_cons in Hys.
-    inversion Hys as [ | a1 a2 aa Haa]. subst.
-    apply IHxs in Haa as [xxs [yys [app_eq [x_comult y_comult]]]].
-    exists (x ++ xxs).
-    exists yys.
-    split. subst. apply app_assoc.
-    split; try constructor; assumption.
+elim: xs a ys=>/= [|x xs IH] a ys Hys.
+- by exists [::], a; do!split=>//; apply: dag_comult_nil.
+case/dag_comult_rcons: Hys=>_ [{a}-> /IH [xxs][yys][->][Hxc Hyc]].
+exists (x++xxs), yys; do!split=>//; first by rewrite catA.
+by apply: dag_comult_cons.
 Qed.
 
 Lemma dag_comult_comult {A} :
   !(dag_comult A) @ (dag_comult A) = (dag_comult !A) @ (dag_comult A).
 Proof.
-  apply lmap_ext. split.
-  - cbn. intros (aa & Haa1 & Haa2).
-    revert y Haa2.
-    induction Haa1 as [ | s a aa ? IH].
-    + inversion 1. eexists; split; constructor.
-    + intros y Hsaa.
-      inversion Hsaa as [ | ? b ? bb Hb Hbb]. subst.
-      apply IH in Hbb as (xaa & Hxaa1 & Hxaa2).
-      exists (b++xaa); split.
-      * apply dag_comult_app; assumption.
-      * constructor. assumption.
-  - cbn. intros (aa & Haa1 & Haa2).
-    revert x Haa1.
-    induction Haa2 as [ | s a aa ? IH].
-    + inversion 1. eexists; split; constructor.
-    + intros xa Hxa.
-      apply dag_comult_app_inv in Hxa
-        as (xa1 & xa2 & app_eq & xa1_comult & xa2_comult).
-      apply IH in xa2_comult as (b & Hb1 & Hb2).
-      exists (xa1::b); split; subst; constructor; assumption.
+apply: lmap_ext=>/= xs x3s; split.
+  case=>xxs [H1 H2]; elim: H1 x3s H2=>/={xxs} [|s a aa H IH] x3s.
+  - by move/dag_lmaps_lnil=>->; exists [::]; split; apply: dag_comult_nil.
+  case/dag_lmaps_lcons=>/=xxs[ws][{x3s}-> Hc /IH [xxs1][Hc1 Hc2]].
+  by exists (xxs ++ xxs1); split; [apply: dag_comult_app | apply: dag_comult_cons].
+case=>xxs [H1 H2]; elim: H2 xs H1=>/={xxs} [|s a aa H IH] xs.
+- by move/dag_comult_rnil=>->; exists [::]; split; [apply: dag_comult_nil | apply: dag_lmaps_nil].
+case/dag_comult_app_inv=>ps[qs][{xs}-> /= [H1 /IH [xxs1][H2 H3]]].
+by exists (ps::xxs1); split; [apply: dag_comult_cons | apply: dag_lmaps_cons].
 Qed.
 
 (** Kleisli extension *)
@@ -1129,31 +1106,18 @@ Definition dag_ext {A B} (f : !A --o B) : !A --o !B :=
 
 Lemma dag_ext_counit A :
   dag_ext (dag_counit A) = @lmap_id !A.
-Proof.
-  unfold dag_ext.
-  apply dag_comult_counit.
-Qed.
+Proof. by rewrite /dag_ext; apply: dag_comult_counit. Qed.
 
 Lemma dag_counit_ext {A B} (f : !A --o B) :
   dag_counit B @ dag_ext f = f.
 Proof.
-  unfold dag_ext.
-  rewrite <- lmap_compose_assoc.
-  rewrite <- dag_counit_natural.
-  rewrite lmap_compose_assoc.
-  rewrite dag_counit_comult.
-  rewrite lmap_compose_id_left.
-  reflexivity.
+by rewrite /dag_ext -lmap_compose_assoc -dag_counit_natural lmap_compose_assoc
+  dag_counit_comult lmap_compose_id_left.
 Qed.
 
 Lemma dag_ext_compose {A B C} (f : !A --o B) (g : !B --o C) :
   dag_ext (g @ dag_ext f) = dag_ext g @ dag_ext f.
 Proof.
-  unfold dag_ext.
-  rewrite !lmap_compose_assoc.
-  rewrite <- (lmap_compose_assoc (dag_comult B)).
-  rewrite <- dag_comult_natural.
-  rewrite !dag_compose, !lmap_compose_assoc.
-  rewrite dag_comult_comult.
-  reflexivity.
+by rewrite /dag_ext lmap_compose_assoc -(lmap_compose_assoc (dag_comult B))
+  -dag_comult_natural !(dag_compose, lmap_compose_assoc) dag_comult_comult.
 Qed.
