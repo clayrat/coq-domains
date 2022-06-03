@@ -1,4 +1,4 @@
-Require Export ssreflect ssrfun Unicode.Utf8.
+Require Export ssreflect ssrfun ssrbool Unicode.Utf8.
 From HB Require Export structures.
 Require Export Coq.Logic.Description Coq.Logic.PropExtensionality Coq.Logic.FunctionalExtensionality Program.Equality.
 Export EqNotations.
