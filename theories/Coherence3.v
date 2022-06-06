@@ -1,8 +1,7 @@
-From mathcomp Require Export seq.
 From Domains Require Import Preamble Preorder Poset Dcpo.
-From Coq Require Import Relations.
+From mathcomp Require Export ssrnat seq eqtype choice fintype order.
 
-(* ported from https://github.com/CertiKOS/rbgs/blob/master/models/Coherence.v *)
+(* based on https://www.cs.man.ac.uk/~schalk/publ/pvsets.pdf *)
 
 Unset Program Cases.
 Local Obligation Tactic := auto.
@@ -12,17 +11,140 @@ Set Bullet Behavior "None".
 
 (** ** Definition *)
 
+Variant three := Coh | Eq | Incoh.
+
+Definition pickle3 (a : three) : nat :=
+  match a with
+  | Coh   => 0
+  | Eq    => 1
+  | Incoh => 2
+  end.
+
+Definition unpickle3 (a : nat) : option three :=
+  match a with
+  | 0 => Some Coh
+  | 1 => Some Eq
+  | 2 => Some Incoh
+  | _ => None
+  end.
+
+Lemma pickle3K : pcancel pickle3 unpickle3.
+Proof. by case. Qed.
+
+Definition three_eqMixin := PcanEqMixin pickle3K.
+Canonical three_eqType := Eval hnf in EqType _ three_eqMixin.
+
+Definition three_choiceMixin := PcanChoiceMixin pickle3K.
+Canonical three_choiceType := Eval hnf in ChoiceType _ three_choiceMixin.
+
+Definition three_countMixin := PcanCountMixin pickle3K.
+Canonical three_countType := Eval hnf in CountType _ three_countMixin.
+
+(* fintype *)
+
+Lemma three_enumP : Finite.axiom [:: Coh; Eq; Incoh].
+Proof. by case. Qed.
+
+Definition three_finMixin := Eval hnf in FinMixin three_enumP.
+Canonical three_finType := Eval hnf in FinType three three_finMixin.
+Lemma card_three : #|{: three}| = 3.
+Proof. by rewrite cardT enumT unlock. Qed.
+
+Definition lt3 (a b : three) : bool :=
+  match a, b with
+  | Coh  , Coh   => false
+  | Coh  , _     => true
+  | Eq   , Incoh => true
+  | Eq   , _     => false
+  | Incoh, _     => false
+  end.
+
+Definition le3 (e1 e2 : three) : bool :=
+  match e1, e2 with
+  | Coh  , _     => true
+  | Eq   , Coh   => false
+  | Eq   , _     => true
+  | Incoh, Incoh => true
+  | Incoh, _     => false
+  end.
+
+Fact lt_def_three : forall x y, lt3 x y = (y != x) && (le3 x y).
+Proof. by case; case. Qed.
+
+Fact refl_three : reflexive le3.
+Proof. by case. Qed.
+
+Fact anti_three : antisymmetric le3.
+Proof. by case; case. Qed.
+
+Fact trans_three : transitive le3.
+Proof. by case; case; case. Qed.
+
+Definition three_porderMixin : lePOrderMixin three_eqType :=
+  LePOrderMixin lt_def_three refl_three anti_three trans_three.
+Canonical three_porderType := Eval hnf in POrderType tt three three_porderMixin.
+
+Fact total_three : total le3.
+Proof. by case; case. Qed.
+
+Definition three_totalPOrderMixin :
+  totalPOrderMixin three_porderType := total_three.
+Canonical three_latticeType :=
+  Eval hnf in LatticeType three three_totalPOrderMixin.
+Canonical three_distrLatticeType :=
+  Eval hnf in DistrLatticeType three three_totalPOrderMixin.
+Canonical three_orderType :=
+  Eval hnf in OrderType three three_totalPOrderMixin.
+
+Definition is_coh (t : three) : bool :=
+  (t == Coh) || (t == Eq).
+
+Definition prod3 (a b : three) : three :=
+  match a, b with
+  | Coh  , Coh   => Coh
+  | Coh  , Eq    => Coh
+  | Eq   , Coh   => Coh
+  | Eq   , Eq    => Eq
+  | _    , Incoh => Incoh
+  | Incoh, _     => Incoh
+  end.
+
+Definition imp3 (a b : three) : three :=
+  match a, b with
+  | Coh  , Coh   => Coh
+  | Coh  , Eq    => Incoh
+  | Coh  , Incoh => Incoh
+  | Eq   , Coh   => Coh
+  | Eq   , Eq    => Eq
+  | Eq   , Incoh => Incoh
+  | Incoh, _     => Coh
+  end.
+
+Lemma coh_imp_refl a : is_coh (imp3 a a).
+Proof. by case: a. Qed.
+
+Lemma coh_imp_trans a b c :
+  is_coh (imp3 a b) -> is_coh (imp3 b c) -> is_coh (imp3 a c).
+Proof. by case: a; case: b; case: c. Qed.
+
+Definition neg3 (a : three) : three :=
+  match a with
+  | Coh   => Incoh
+  | Eq    => Eq
+  | Incoh => Coh
+  end.
+
 Record space :=
   {
     token : Type;          (* can be made a countType (Ehrhard, Jafar-Rahmani, 2019) *)
-    coh: relation token;
-    coh_refl: reflexive _ coh;
-    coh_symm: symmetric _ coh;
+    chf : token -> token -> three;
+    chf_symm: forall a b, chf a b = chf b a;
+    chf_eq: Equality.axiom (fun a b => chf a b == Eq);
   }.
 
-Arguments coh {_}.
-Bind Scope coh_scope with space.
-Delimit Scope coh_scope with coh.
+Arguments chf {_}.
+Bind Scope chf_scope with space.
+Delimit Scope chf_scope with chf.
 
 (** ** Cliques *)
 
@@ -31,7 +153,7 @@ Delimit Scope coh_scope with coh.
 Record clique (A : space) :=
   {
     has : token A -> Prop;
-    has_coh a b : has a -> has b -> coh a b;
+    has_coh a b : has a -> has b -> is_coh (chf a b);
   }.
 
 Arguments has {A}.
@@ -43,23 +165,23 @@ Open Scope clique_scope.
 
 (* Points are ordered by inclusion and form a DCPPO. *)
 
-Definition ref {A} : relation (clique A) :=
+Definition ref {A} : clique A -> clique A -> Prop :=
   fun x y => forall a, has x a -> has y a.
 
-Lemma refR {A} : reflexive _ (@ref A).
+Lemma refR {A} (a : clique A) : ref a a.
 Proof. by move=>c ta. Qed.
 
-Lemma refT {A} : transitive _ (@ref A).
+Lemma refT {A} (a b c : clique A): ref a b -> ref b c -> ref a c.
 Proof.
-move=>cx cy cz Hxy Hyz ta Ha.
+move=>Hxy Hyz ta Ha.
 by apply/Hyz/Hxy.
 Qed.
 
 HB.instance Definition ref_preo A := PreorderOfType.Build (clique A) ref refR refT.
 
-Lemma refA {A} : antisymmetric _ (@ref A).
+Lemma refA {A} (a b : clique A) : ref a b -> ref b a -> a = b.
 Proof.
-move=>[ha ca][hb cb]; rewrite /ref /= => Hxy Hyx.
+case: a=>[ha ca]; case: b=>[hb cb]; rewrite /ref /= => Hxy Hyx.
 have E: ha = hb.
 - by apply: funext=>t; apply: propext; split; [apply: Hxy | apply: Hyx].
 rewrite E in ca cb *.
@@ -76,7 +198,6 @@ Program Definition bot A : clique A :=
   {|
     has a := False;
   |}.
-Next Obligation. by []. Qed.
 
 Lemma ref_bot {A} : ∃ x : clique A, is_bottom x.
 Proof. by exists (bot A)=>x a. Qed.
@@ -116,29 +237,38 @@ HB.instance Definition ref_dcpo A := DcpoOfPoset.Build (clique A) ref_HasDLubs.
 Program Definition lmap (A B : space) : space :=
   {|
     token := token A * token B;
-    coh '(a1, b1) '(a2, b2) :=
-      coh a1 a2 -> coh b1 b2 /\ (b1 = b2 -> a1 = a2);
+    chf '(a1, b1) '(a2, b2) := imp3 (chf a1 a2) (chf b1 b2);
   |}.
 Next Obligation.
-move=>A B [a b] _; split=>//.
-by apply: coh_refl.
+move=>A B [a1 b1][a2 b2].
+by rewrite (chf_symm _ a2 a1) (chf_symm _ b2 b1).
 Qed.
 Next Obligation.
-move=>A B [a1 b1][a2 b2] H /coh_symm /H; case=>Hb He.
-split; first by apply: coh_symm.
-by move=>E; symmetry; apply: He.
+move=>A B [a1 b1][a2 b2].
+case E1: (chf a1 a2)=>/=.
+- have/chf_eq {}E1: chf a1 a2 != Eq by rewrite E1.
+  by case E2: (chf b1 b2)=>/=; constructor; case=>A1; rewrite A1 in E1.
+- move/eqP/chf_eq: E1=>->.
+  case E2: (chf b1 b2)=>/=; constructor.
+  - have/chf_eq {}E2: chf b1 b2 != Eq by rewrite E2.
+    by case=>A2; rewrite A2 in E2.
+  - by move/eqP/chf_eq: E2=>->.
+  have/chf_eq {}E2: chf b1 b2 != Eq by rewrite E2.
+  by case=>A2; rewrite A2 in E2.
+have/chf_eq {}E1: chf a1 a2 != Eq by rewrite E1.
+by case E2: (chf b1 b2)=>/=; constructor; case=>A1; rewrite A1 in E1.
 Qed.
 
-Infix "--o" := lmap (at level 55, right associativity) : coh_scope.
+Infix "--o" := lmap (at level 55, right associativity) : chf_scope.
 Notation "A --o B" := (clique (A --o B)) : type_scope.
 
 (** *** Properties *)
-
+(*
 Lemma lmap_cohdet {A B} (f : A --o B) (a1 a2 : token A) (b1 b2 : token B) :
   coh a1 a2 -> has f (a1, b1) -> has f (a2, b2) ->
   coh b1 b2 /\ (b1 = b2 -> a1 = a2).
 Proof. by move=>Ha H1 H2; case: (has_coh _ f _ _ H1 H2 Ha). Qed.
-
+*)
 Lemma lmap_ext {A B} (f g : A --o B):
   (forall x y, has f (x, y) <-> has g (x, y)) -> f = g.
 Proof. by move=>H; apply: ltE; case=>a b Ha; apply/H. Qed.
@@ -149,17 +279,20 @@ Program Definition lmap_id {A : space} : A --o A :=
   {|
     has '(x, y) := x = y;
   |}.
-Next Obligation. by move=>A [a1 b1] [a2 b2] /= ->->. Qed.
+Next Obligation.
+move=>A [a1 b1][a2 b2] ->-> /=.
+by exact: coh_imp_refl.
+Qed.
 
 Program Definition lmap_compose {A B C} (g : B --o C) (f : A --o B) : A --o C :=
   {|
     has '(x, z) := exists y, has f (x, y) /\ has g (y, z);
   |}.
 Next Obligation.
-move=>A B C [tg cg] [tf cf] [a1 c1] [a2 c2] /= [x [Hx1 Hx2]][y [Hy1 Hy2]] H.
-move: (cf _ _ Hx1 Hy1)=>/(_ H); case=>Hxy Exy.
-move: (cg _ _ Hx2 Hy2)=>/(_ Hxy); case=>Hc Ec.
-by split=>// /Ec/Exy.
+move=>A B C [tg cg] [tf cf] [a1 c1] [a2 c2] /= [x [Hx1 Hx2]][y [Hy1 Hy2]].
+move: (cg _ _ Hx2 Hy2)=>/=.
+move: (cf _ _ Hx1 Hy1)=>/=.
+by exact: coh_imp_trans.
 Qed.
 
 Infix "@" := lmap_compose (at level 30, right associativity) : clique_scope.
@@ -200,7 +333,7 @@ Program Definition lmap_apply {A B} (f : A --o B) (x : clique A) : clique B :=
 Next Obligation.
 move=>A B [tf cf] [tx cx] a b [y][/= Hxy Hfy][z][Hxz Hfz].
 move: (cx _ _ Hxy Hxz)=>Hc.
-by move: (cf _ _ Hfy Hfz)=>/(_ Hc) [].
+move: (cf _ _ Hfy Hfz)=>/=. =>/(_ Hc) [].
 Qed.
 
 Lemma lmap_apply_id {A} (x : clique A) :
