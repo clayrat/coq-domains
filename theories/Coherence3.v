@@ -146,6 +146,13 @@ Definition neg3 (a : three) : three :=
   | Incoh => Coh
   end.
 
+Lemma neg_inv a : neg3 (neg3 a) = a.
+Proof. by case: a. Qed.
+
+Lemma coh_imp_neg a b :
+  is_coh (imp3 a b) -> is_coh (imp3 (neg3 b) (neg3 a)).
+Proof. by case: a; case: b. Qed.
+
 Record space :=
   {
     token : Type;          (* can be made a countType (Ehrhard, Jafar-Rahmani, 2019) *)
@@ -670,25 +677,21 @@ Variant lneg_token A :=
 
 Arguments ln {A}.
 
-Definition incoh A : relation (token A) :=
-  fun x y => coh x y -> x = y.
-
-Arguments incoh {_}.
-
-Variant lneg_coh (A : space) : relation (lneg_token A) :=
-  lneg_coh_intro x y :
-    incoh x y -> lneg_coh A (ln x) (ln y).
-
 Program Definition lneg (A : space) : space :=
   {|
     token := lneg_token A;
-    coh := lneg_coh A;
+    chf '(ln x) '(ln y):= neg3 (chf x y);
   |}.
 Next Obligation.
-by move=>A [a]; apply: lneg_coh_intro.
+by move=>A [x][y]; rewrite chf_symm.
 Qed.
 Next Obligation.
-by move=>A _ _ [x y H]; apply: lneg_coh_intro=>/coh_symm/H.
+move=>A [x][y]; case E: (chf x y)=>/=; constructor.
+- have/chf_eq {E}En: chf x y != Eq by rewrite E.
+  by case.
+- by move/eqP/chf_eq: E=>->.
+have/chf_eq {E}En: chf x y != Eq by rewrite E.
+by case.
 Qed.
 
 Program Definition lmap_flip {A B} (f : A --o B) : lneg B --o lneg A :=
@@ -696,14 +699,9 @@ Program Definition lmap_flip {A B} (f : A --o B) : lneg B --o lneg A :=
     has '((ln x), (ln y)) := has f (y, x);
   |}.
 Next Obligation.
-move=>A B f [[b1 [a1]] [[b2][a2]]] H1 H2 /= H.
-case: {-1}_ {-1}_ / H (erefl (ln b1) ) (erefl (ln b2))=>a b E [E1][E2].
-rewrite {b1}E1 in H1; rewrite {b2}E2 in H2; split.
-- apply: lneg_coh_intro=>H.
-  by case: (lmap_cohdet _ _ _ _ _ H H1 H2)=>Hb1; apply; apply: E.
-case=>Ea; rewrite {a1}Ea in H1.
-have H := coh_refl _ a2.
-by case: (lmap_cohdet _ _ _ _ _ H H1 H2)=>/E->.
+move=>A B f [[b1 [a1]] [[b2][a2]]] H1 H2 /=.
+move: (has_coh _ _ _ _ H1 H2)=>/=.
+by exact: coh_imp_neg.
 Qed.
 
 Program Definition neg_inv_t {A} : A --o lneg (lneg A) :=
@@ -711,37 +709,18 @@ Program Definition neg_inv_t {A} : A --o lneg (lneg A) :=
     has '(a, ln (ln b)) := a = b;
   |}.
 Next Obligation.
-move=>A [a1 [[b1]]][a2 [[b2]]] {a1}->{a2}->/= H; split; last by case.
-apply: lneg_coh_intro=>/= H2.
-case: {-1}_ {-1}_ / H2 (erefl (ln b1)) (erefl (ln b2)) H.
-by move=>x y E [->][->] /E ->.
+move=>A [a1 [[b1]]][a2 [[b2]]] {a1}->{a2}->/=.
+by rewrite neg_inv; exact: coh_imp_refl.
 Qed.
 
-(*
-
-Program Definition neg_clique {A} (cl : clique A) : clique (lneg A) :=
-{|
-  has '(ln a) := ~ has cl a;
-|}.
-Next Obligation.
-move=>A [h Hc][a][b] /= Ha Hb.
-apply: lneg_coh_intro=>H.
-
-*)
-
-
-(*
 Program Definition neg_inv_f {A} : lneg (lneg A) --o A :=
   {|
     has '(ln (ln a), b) := a = b;
   |}.
 Next Obligation.
-move=>A [[[a1]] b1][[[a2]] b2] /=.
-move=>E1 E2 H.
-case: {-1}_ {-1}_ / H (erefl (@ln (lneg _) (ln a1))) (erefl (@ln (lneg _) (ln a2))).
-move=>[x][y]; rewrite /incoh /= => H [Ex][Ey].
-rewrite {a1}Ex in E1; rewrite {a2}Ey in E2.
-*)
+move=>A [[[a1]] b1][[[a2]] b2] {a1}->{a2}->/=.
+by rewrite neg_inv; exact: coh_imp_refl.
+Qed.
 
 (** * Cartesian structure *)
 
