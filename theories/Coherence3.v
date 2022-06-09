@@ -126,6 +126,9 @@ Definition imp3 (a b : three) : three :=
 Lemma coh_imp_refl a : is_coh (imp3 a a).
 Proof. by case: a. Qed.
 
+Lemma coh_imp_coh a : is_coh (imp3 a Coh).
+Proof. by case: a. Qed.
+
 Lemma coh_imp_trans a b c :
   is_coh (imp3 a b) -> is_coh (imp3 b c) -> is_coh (imp3 a c).
 Proof. by case: a; case: b; case: c. Qed.
@@ -152,6 +155,33 @@ Proof. by case: a. Qed.
 Lemma coh_imp_neg a b :
   is_coh (imp3 a b) -> is_coh (imp3 (neg3 b) (neg3 a)).
 Proof. by case: a; case: b. Qed.
+
+Definition par3 (a b : three) : three :=
+  match a, b with
+  | Coh  , _     => Coh
+  | _    , Coh   => Coh
+  | Eq   , Eq    => Eq
+  | _    , _     => Incoh
+  end.
+
+Lemma par_eql a : par3 a Eq = a.
+Proof. by case: a. Qed.
+
+Lemma imp_par3 a b : imp3 a b = par3 (neg3 a) b.
+Proof. by case: a. Qed.
+
+Definition seq3 (a b : three) : three :=
+  match a, b with
+  | Coh  , _     => Coh
+  | Eq   , Coh   => Coh
+  | Eq   , Eq    => Eq
+  | _    , _     => Incoh
+  end.
+
+Lemma coh_imp_seq a b c d :
+  is_coh (imp3 a b) -> is_coh (imp3 c d) ->
+  is_coh (imp3 (seq3 a c) (seq3 b d)).
+Proof. by case: a; case: b; case: c; case: d. Qed.
 
 Record space :=
   {
@@ -728,42 +758,44 @@ Qed.
 
 (** *** Definition *)
 
-Variant csprod_coh {A B} (RA : relation A) (RB : relation B) : relation (A + B) :=
-  | inl_coh x y : RA x y -> csprod_coh RA RB (inl x) (inl y)
-  | inr_coh x y : RB x y -> csprod_coh RA RB (inr x) (inr y)
-  | inl_inr_coh x y : csprod_coh RA RB (inl x) (inr y)
-  | inr_inl_coh x y : csprod_coh RA RB (inr x) (inl y).
-
 Program Definition csprod (A B : space) : space :=
   {|
     token := token A + token B;
-    coh := csprod_coh coh coh;
+    chf a b := match a, b with
+               | inl x, inl y => chf x y
+               | inl x, inr y => Coh
+               | inr x, inl y => Coh
+               | inr x, inr y => chf x y
+               end
   |}.
 Next Obligation.
-move=>A B; case.
-- move=>a; apply: inl_coh.
-  by apply: coh_refl.
-move=>b; apply: inr_coh.
-by apply: coh_refl.
+by move=>A B [x|x][y|y] //=; rewrite chf_symm.
 Qed.
 Next Obligation.
-move=>A B x y H; case: {-1}_ {-1}_ / H (erefl x) (erefl y) => a b.
-- by move=>H _ _; apply/inl_coh/coh_symm.
-- by move=>H _ _; apply/inr_coh/coh_symm.
-- by move=>_ _; apply: inr_inl_coh.
-by move=>_ _; apply: inl_inr_coh.
+move=>A B; case=>a; case=>b; try by constructor.
+- case H: (chf a b); constructor.
+  - have/chf_eq {}H: chf a b != Eq by rewrite H.
+    by case.
+  - by move/eqP/chf_eq: H=>->.
+  have/chf_eq {}H: chf a b != Eq by rewrite H.
+  by case.
+case H: (chf a b); constructor.
+- have/chf_eq {}H: chf a b != Eq by rewrite H.
+  by case.
+- by move/eqP/chf_eq: H=>->.
+have/chf_eq {}H: chf a b != Eq by rewrite H.
+by case.
 Qed.
 
-Infix "&&" := csprod : coh_scope.
+Infix "&&" := csprod : chf_scope.
 
 Program Definition csp1 {A B : space} : A && B --o A :=
   {|
     has '(x, a) := inl a = x;
   |}.
 Next Obligation.
-move=>A B [a1 b1][a2 b2] /= <-<- H.
-case: {-1}_ {-1}_ / H (erefl (@inl _ (token B) b1)) (erefl (@inl _ (token B) b2))=>//.
-by move=>x y H; case=>->; case=>->; split=>//->.
+move=>A B [a1 b1][a2 b2] /= <-<-.
+by exact: coh_imp_refl.
 Qed.
 
 Program Definition csp2 {A B : space} : A && B --o B :=
@@ -771,9 +803,8 @@ Program Definition csp2 {A B : space} : A && B --o B :=
     has '(x, b) := inr b = x;
   |}.
 Next Obligation.
-move=>A B [a1 b1][a2 b2] /= <-<- H.
-case: {-1}_ {-1}_ / H (erefl (@inr (token A) _ b1)) (erefl (@inr (token A) _ b2))=>//.
-by move=>x y H; case=>->; case=>->; split=>//->.
+move=>A B [a1 b1][a2 b2] /= <-<-.
+by exact: coh_imp_refl.
 Qed.
 
 Program Definition cspair {X A B: space} (f: X --o A) (g: X --o B): X --o A && B :=
@@ -785,13 +816,11 @@ Program Definition cspair {X A B: space} (f: X --o A) (g: X --o B): X --o A && B
       end;
   |}.
 Next Obligation.
-move=>X A B f g /= [a1 b1][a2 b2]; case: b2=>b2; case: b1=>b1 H1 H2 Hc.
-- case: (lmap_cohdet _ _ _ _ _ Hc H1 H2)=>Hcb E.
-  by split; [apply: inl_coh | case].
-- by split=>//; apply: inr_inl_coh.
-- by split=>//; apply: inl_inr_coh.
-case: (lmap_cohdet _ _ _ _ _ Hc H1 H2)=>Hcb E.
-by split; [apply: inr_coh | case].
+move=>X A B f g /= [a1 b1][a2 b2]; case: b2=>b2; case: b1=>b1 H1 H2.
+- by move: (has_coh _ _ _ _ H1 H2).
+- by exact: coh_imp_coh.
+- by exact: coh_imp_coh.
+by move: (has_coh _ _ _ _ H1 H2).
 Qed.
 
 Notation "{ x , y }" := (cspair x y) (x at level 99) : clique_scope.
@@ -830,35 +859,36 @@ Qed.
 
 (** *** Definition *)
 
-Inductive cssum_coh {A B} (RA: relation A) (RB: relation B): relation (A + B) :=
-  | sum_inl_coh x y : RA x y -> cssum_coh RA RB (inl x) (inl y)
-  | sum_inr_coh x y : RB x y -> cssum_coh RA RB (inr x) (inr y).
-
 Program Definition cssum (A B : space) : space :=
   {|
     token := token A + token B;
-    coh := cssum_coh coh coh;
+    chf a b := match a, b with
+               | inl x, inl y => chf x y
+               | inr x, inr y => chf x y
+               | _, _ => Incoh
+               end
   |}.
 Next Obligation.
-move=>A B; case=>x.
-- by apply/sum_inl_coh/coh_refl.
-by apply/sum_inr_coh/coh_refl.
+by move=>A B; case=>x; case=>y //; rewrite chf_symm.
 Qed.
 Next Obligation.
-move=>A B x y H; case: {-1}_ {-1}_ / H (erefl x) (erefl y) => a b.
-- by move=>H _ _; apply/sum_inl_coh/coh_symm.
-by move=>H _ _; apply/sum_inr_coh/coh_symm.
+move=>A B; case=>x; case=>y; try by [constructor];
+case: (@eqP _ (chf x y))=>H; constructor.
+- by move/eqP/chf_eq: H=>->.
+- by case=>E; rewrite E in H; move/eqP/chf_eq: H.
+- by move/eqP/chf_eq: H=>->.
+by case=>E; rewrite E in H; move/eqP/chf_eq: H.
 Qed.
 
-Infix "+" := cssum : coh_scope.
+Infix "+" := cssum : chf_scope.
 
 Program Definition csi1 {A B : space} : A --o A + B :=
   {|
     has '(a, x) := inl a = x;
   |}.
 Next Obligation.
-move=>A B [a1 _][a2 _]<-<- Ha; split=>/=; last by case.
-by apply: sum_inl_coh.
+move=>A B [a1 _][a2 _]<-<-/=.
+by exact: coh_imp_refl.
 Qed.
 
 Program Definition csi2 {A B : space} : B --o A + B :=
@@ -866,8 +896,8 @@ Program Definition csi2 {A B : space} : B --o A + B :=
     has '(b, x) := inr b = x;
   |}.
 Next Obligation.
-move=>A B [a1 _][a2 _]<-<- Ha; split=>/=; last by case.
-by apply: sum_inr_coh.
+move=>A B [a1 _][a2 _]<-<-/=.
+by exact: coh_imp_refl.
 Qed.
 
 Program Definition copair {A B X: space} (f: A --o X) (g: B --o X) : A+B --o X :=
@@ -879,10 +909,9 @@ Program Definition copair {A B X: space} (f: A --o X) (g: B --o X) : A+B --o X :
       end;
   |}.
 Next Obligation.
-move=>A B X f g [ab1 x1][ab2 x2] /= H1 H2 H.
-case: {-1}_ {-1}_ / H (erefl ab1) (erefl ab2) => a b H E1 E2;
-rewrite {ab1}E1 in H1; rewrite {ab2}E2 in H2;
-by case: (lmap_cohdet _ _ _ _ _ H H1 H2)=>Hx E; split=>// /E ->.
+move=>A B X f g [ab1 x1][ab2 x2] /=.
+case: ab1=>[a1|b1]; case: ab2=>[a2|b2] //= H1 H2;
+by move: (has_coh _ _ _ _ H1 H2).
 Qed.
 
 Notation "[ x , y ]" := (copair x y) (x at level 99) : clique_scope.
@@ -922,9 +951,8 @@ Qed.
 Program Definition csterm : space :=
   {|
     token := Empty_set;
-    coh x y := True;
+    chf x y := Coh;
   |}.
-Next Obligation. by []. Qed.
 Next Obligation. by []. Qed.
 
 (** *** Universal property *)
@@ -939,6 +967,52 @@ Lemma discard_uniq {A} (f : A --o csterm) :
   f = discard A.
 Proof. by apply: lmap_ext=>x. Qed.
 
+(* par *)
+
+Program Definition cspar (A B : space) : space :=
+  {|
+    token := token A * token B;
+    chf '(a1, b1) '(a2, b2) := par3 (chf a1 a2) (chf b1 b2);
+  |}.
+Next Obligation.
+move=>A B [a1 b1][a2 b2].
+by rewrite chf_symm (chf_symm _ b1).
+Qed.
+Next Obligation.
+move=>A B [a1 b1][a2 b2]; case H1: (chf a1 a2)=>/=.
+- have/chf_eq {}H1: chf a1 a2 != Eq by rewrite H1.
+  by constructor; case.
+- move/eqP/chf_eq: H1=>->.
+  case H2: (chf b1 b2)=>/=; constructor.
+  - have/chf_eq {}H2: chf b1 b2 != Eq by rewrite H2.
+    by case.
+  - by move/eqP/chf_eq: H2=>->.
+  have/chf_eq {}H2: chf b1 b2 != Eq by rewrite H2.
+  by case.
+have/chf_eq {}H1: chf a1 a2 != Eq by rewrite H1.
+by case H2: (chf b1 b2)=>/=; constructor; case.
+Qed.
+
+Program Definition lunit A : (cspar 1 A) --o A :=
+  {|
+     has '((_, a), b) := a = b;
+  |}.
+Next Obligation.
+by move=>A [[[] a1] b1][[[] a2] b2] /= ->->; case: (chf b1 b2).
+Qed.
+
+(** Right unitor *)
+
+Program Definition runit A : (cspar A 1) --o A :=
+  {|
+  has '((a, _), b) := a = b;
+  |}.
+Next Obligation.
+move=>A [[a1 []] b1][[a2 []] b2] /= ->->.
+by rewrite par_eql; exact: coh_imp_refl.
+Qed.
+
+
 (** * Sequential constructions *)
 
 (** ** Composition *)
@@ -946,17 +1020,28 @@ Proof. by apply: lmap_ext=>x. Qed.
 Program Definition sequ (A B : space) : space :=
   {|
     token := token A * token B;
-    coh '(a1, b1) '(a2, b2) := coh a1 a2 /\ (a1 = a2 -> coh b1 b2);
+    chf '(a1, b1) '(a2, b2) := seq3 (chf a1 a2) (chf b1 b2);
   |}.
 Next Obligation.
-by move=>A B [a b]; split=>[|_]; apply: coh_refl.
+move=>A B [a1 b1][a2 b2].
+by rewrite chf_symm (chf_symm _ b1).
 Qed.
 Next Obligation.
-move=>A B [a1 b1][a2 b2][Ha Hb]; split; first by apply: coh_symm.
-by move=>E; rewrite E in Hb; apply/coh_symm/Hb.
+move=>A B [a1 b1][a2 b2]; case H1: (chf a1 a2)=>/=.
+- have/chf_eq {}H1: chf a1 a2 != Eq by rewrite H1.
+  by constructor; case.
+- move/eqP/chf_eq: H1=>->.
+  case H2: (chf b1 b2)=>/=; constructor.
+  - have/chf_eq {}H2: chf b1 b2 != Eq by rewrite H2.
+    by case.
+  - by move/eqP/chf_eq: H2=>->.
+  have/chf_eq {}H2: chf b1 b2 != Eq by rewrite H2.
+  by case.
+have/chf_eq {}H1: chf a1 a2 != Eq by rewrite H1.
+by constructor; case.
 Qed.
 
-Infix ";;" := sequ (at level 40, left associativity) : coh_scope.
+Infix ";;" := sequ (at level 40, left associativity) : chf_scope.
 
 Program Definition sequ_lmap {A B C D} (f : A --o B) (g : C --o D) :
     (A ;; C) --o (B ;; D) :=
@@ -965,12 +1050,10 @@ Program Definition sequ_lmap {A B C D} (f : A --o B) (g : C --o D) :
   |}.
 Next Obligation.
 move=>A B C D f g [[a1 c1][b1 d1]][[a2 c2][b2 d2]] /=
-  [Hab1 Hcd1] [Hab2 Hcd2] [Ha Ea].
-case: (lmap_cohdet _ _ _ _ _ Ha Hab1 Hab2)=>Hb Eb; split.
-- split=>// /Eb/Ea Hc.
-  by case: (lmap_cohdet _ _ _ _ _ Hc Hcd1 Hcd2).
-case=>/Eb /[dup] /Ea Hc ->.
-by case: (lmap_cohdet _ _ _ _ _ Hc Hcd1 Hcd2)=>Hd /[apply] ->.
+  [Hab1 Hcd1][Hab2 Hcd2].
+move: (has_coh _ _ _ _ Hcd1 Hcd2)=>/=.
+move: (has_coh _ _ _ _ Hab1 Hab2)=>/=.
+by exact: coh_imp_seq.
 Qed.
 
 Infix ";;" := sequ_lmap : lmap_scope.
@@ -1342,26 +1425,4 @@ Lemma dag_ext_compose {A B C} (f : !A --o B) (g : !B --o C) :
 Proof.
 by rewrite /dag_ext lmap_compose_assoc -(lmap_compose_assoc (dag_comult B))
   -dag_comult_natural !(dag_compose, lmap_compose_assoc) dag_comult_comult.
-Qed.
-
-(* par *)
-
-Variant cspar_coh {A B} (RA : relation A) (RB : relation B) : relation (A * B) :=
-  | par1_coh xa xb ya yb : RA xa xb -> xa <> xb -> cspar_coh RA RB (xa, ya) (xb, yb)
-  | par2_coh xa xb ya yb : RB ya yb -> ya <> yb -> cspar_coh RA RB (xa, ya) (xb, yb)
-  | parE_coh xa xb ya yb : xa = xb  -> ya = yb  -> cspar_coh RA RB (xa, ya) (xb, yb).
-
-Program Definition cspar (A B : space) : space :=
-  {|
-    token := token A * token B;
-    coh := cspar_coh coh coh;
-  |}.
-Next Obligation.
-by move=>A B [a b]; apply: parE_coh.
-Qed.
-Next Obligation.
-move=>A B [a1 b1][a2 b2]; case=>{a1 b1 a2 b2}xa xb ya yb.
-- by move=>H E; apply: par1_coh; [apply/coh_symm | move=>Eq; apply: E].
-- by move=>H E; apply: par2_coh; [apply/coh_symm | move=>Eq; apply: E].
-by move=>->->; apply: parE_coh.
 Qed.
