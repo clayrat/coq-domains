@@ -52,20 +52,20 @@ Proof. by rewrite cardT enumT unlock. Qed.
 
 Definition lt3 (a b : three) : bool :=
   match a, b with
-  | Coh  , Coh   => false
-  | Coh  , _     => true
-  | Eq   , Incoh => true
+  | Incoh, Incoh => false
+  | Incoh, _     => true
+  | Eq   , Coh   => true
   | Eq   , _     => false
-  | Incoh, _     => false
+  | Coh  , _     => false
   end.
 
 Definition le3 (e1 e2 : three) : bool :=
   match e1, e2 with
-  | Coh  , _     => true
-  | Eq   , Coh   => false
+  | Incoh, _     => true
+  | Eq   , Incoh => false
   | Eq   , _     => true
-  | Incoh, Incoh => true
-  | Incoh, _     => false
+  | Coh  , Coh   => true
+  | Coh  , _     => false
   end.
 
 Fact lt_def_three : forall x y, lt3 x y = (y != x) && (le3 x y).
@@ -763,9 +763,8 @@ Program Definition csprod (A B : space) : space :=
     token := token A + token B;
     chf a b := match a, b with
                | inl x, inl y => chf x y
-               | inl x, inr y => Coh
-               | inr x, inl y => Coh
                | inr x, inr y => chf x y
+               | _    , _     => Coh
                end
   |}.
 Next Obligation.
@@ -865,7 +864,7 @@ Program Definition cssum (A B : space) : space :=
     chf a b := match a, b with
                | inl x, inl y => chf x y
                | inr x, inr y => chf x y
-               | _, _ => Incoh
+               | _    , _     => Incoh
                end
   |}.
 Next Obligation.
