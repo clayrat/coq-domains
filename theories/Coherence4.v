@@ -66,7 +66,6 @@ Definition lt4 (a b : four) : bool :=
   | Coh  , _     => false
   end.
 
-(* same as is_coh (imp4 e1 e2) *)
 Definition le4 (e1 e2 : four) : bool :=
   match e1, e2 with
   | Incoh, _     => true
@@ -172,11 +171,12 @@ Definition imp4 (e1 e2 : four) : four :=
   match e1, e2 with
   | Incoh, _     => Coh
   | Bot  , Coh   => Coh
-  | Bot  , Bot   => Bot
+  | Bot  , Bot   => Unit
   | Bot  , _     => Incoh
   | Unit , Coh   => Coh
+  | Unit , Bot   => Bot
   | Unit , Unit  => Unit
-  | Unit , _     => Incoh
+  | Unit , Incoh => Incoh
   | Coh  , Coh   => Coh
   | Coh  , _     => Incoh
   end.
@@ -225,7 +225,7 @@ Definition par4 (e1 e2 : four) : four :=
   | Bot  , Coh   => Coh
   | Bot  , Unit  => Unit
   | Bot  , Bot   => Bot
-  | Bot  , _     => Incoh
+  | Bot  , Incoh => Incoh
   | Incoh, Coh   => Coh
   | Incoh, _     => Incoh
   end.
@@ -234,9 +234,9 @@ Lemma par_eql a : par4 a Bot = a.
 Proof. by case: a. Qed.
 
 Lemma imp_par4 a b : imp4 a b = par4 (neg4 a) b.
-Proof. case: a; case: b=>//. Qed.
+Proof. by case: a; case: b. Qed.
 
-
+(*
 Definition seq3 (a b : four) : four :=
   match a, b with
   | Coh  , _     => Coh
@@ -1095,12 +1095,13 @@ Program Definition csbot : space :=
 Program Definition cspar (A B : space) : space :=
   {|
     token := token A * token B;
-    chf '(a1, b1) '(a2, b2) := par3 (chf a1 a2) (chf b1 b2);
+    chf '(a1, b1) '(a2, b2) := par4 (chf a1 a2) (chf b1 b2);
   |}.
 Next Obligation.
 move=>A B [a1 b1][a2 b2].
 by rewrite chf_symm (chf_symm _ b1).
 Qed.
+(*
 Next Obligation.
 move=>A B [a1 b1][a2 b2]; case H1: (chf a1 a2)=>/=.
 - have/chf_eq {}H1: chf a1 a2 != Eq by rewrite H1.
@@ -1115,8 +1116,8 @@ move=>A B [a1 b1][a2 b2]; case H1: (chf a1 a2)=>/=.
 have/chf_eq {}H1: chf a1 a2 != Eq by rewrite H1.
 by case H2: (chf b1 b2)=>/=; constructor; case.
 Qed.
-
-Program Definition lunit A : (cspar 1 A) --o A :=
+*)
+Program Definition lunit A : (cspar csbot A) --o A :=
   {|
      has '((_, a), b) := a = b;
   |}.
@@ -1126,7 +1127,7 @@ Qed.
 
 (** Right unitor *)
 
-Program Definition runit A : (cspar A 1) --o A :=
+Program Definition runit A : (cspar A csbot) --o A :=
   {|
   has '((a, _), b) := a = b;
   |}.
