@@ -59,6 +59,7 @@ Definition lt3 (a b : three) : bool :=
   | Coh  , _     => false
   end.
 
+(* same as is_coh (imp3 e1 e2) *)
 Definition le3 (e1 e2 : three) : bool :=
   match e1, e2 with
   | Incoh, _     => true
@@ -115,8 +116,7 @@ Proof. by case: a. Qed.
 Definition imp3 (a b : three) : three :=
   match a, b with
   | Coh  , Coh   => Coh
-  | Coh  , Eq    => Incoh
-  | Coh  , Incoh => Incoh
+  | Coh  , _     => Incoh
   | Eq   , Coh   => Coh
   | Eq   , Eq    => Eq
   | Eq   , Incoh => Incoh
@@ -312,12 +312,7 @@ Infix "--o" := lmap (at level 55, right associativity) : chf_scope.
 Notation "A --o B" := (clique (A --o B)) : type_scope.
 
 (** *** Properties *)
-(*
-Lemma lmap_cohdet {A B} (f : A --o B) (a1 a2 : token A) (b1 b2 : token B) :
-  has f (a1, b1) -> has f (a2, b2) -> is_coh (chf a b)
-  coh a1 a2 -> coh b1 b2 /\ (b1 = b2 -> a1 = a2).
-Proof. by move=>Ha H1 H2; case: (has_coh _ f _ _ H1 H2 Ha). Qed.
-*)
+
 Lemma lmap_ext {A B} (f g : A --o B):
   (forall x y, has f (x, y) <-> has g (x, y)) -> f = g.
 Proof. by move=>H; apply: ltE; case=>a b Ha; apply/H. Qed.
@@ -661,7 +656,7 @@ apply: lmap_ext=>[[a1 a2][c1 c2]] /=; split.
 by case=>[[b1 b2][[Hf1 Hf2][Hg1 Hg2]]]; split; [exists b1 | exists b2].
 Qed.
 
-(** ** Unit *)
+(** ** Unit, 1 = bot *)
 
 Program Definition csunit : space :=
   {|
@@ -943,7 +938,7 @@ apply: lmap_ext; case=>[a|b] x /=; split.
 by move=>Hax; exists (inr b).
 Qed.
 
-(** ** Terminal object *)
+(** ** Terminal object, 0 = top *)
 
 (** *** Definition *)
 
@@ -953,6 +948,54 @@ Program Definition csterm : space :=
     chf x y := Coh;
   |}.
 Next Obligation. by []. Qed.
+
+Program Definition prod_unitl A : csterm && A --o A :=
+  {|
+     has '(a, b) := match a with
+                    | inl x => Empty_set_rect _ x
+                    | inr y => y = b
+                    end
+  |}.
+Next Obligation.
+move=>A [[|a1] b1] // [[|a2] b2] //= ->->.
+by exact: coh_imp_refl.
+Qed.
+
+Program Definition prod_unitr A : A && csterm --o A :=
+  {|
+     has '(a, b) := match a with
+                    | inl x => x = b
+                    | inr y => Empty_set_rect _ y
+                    end
+  |}.
+Next Obligation.
+move=>A [[a1|] b1] // [[a2|] b2] //= ->->.
+by exact: coh_imp_refl.
+Qed.
+
+Program Definition sum_unitl A : csterm + A --o A :=
+  {|
+     has '(a, b) := match a with
+                    | inl x => Empty_set_rect _ x
+                    | inr y => y = b
+                    end
+  |}.
+Next Obligation.
+move=>A [[|a1] b1] // [[|a2] b2] //= ->->.
+by exact: coh_imp_refl.
+Qed.
+
+Program Definition sum_unitr A : A + csterm --o A :=
+  {|
+     has '(a, b) := match a with
+                    | inl x => x = b
+                    | inr y => Empty_set_rect _ y
+                    end
+  |}.
+Next Obligation.
+move=>A [[a1|] b1] // [[a2|] b2] //= ->->.
+by exact: coh_imp_refl.
+Qed.
 
 (** *** Universal property *)
 
