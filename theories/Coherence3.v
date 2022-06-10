@@ -1062,78 +1062,61 @@ Infix ";;" := sequ_lmap : lmap_scope.
 
 (* finite clique *)
 
-Inductive seq_coh (A : space) : relation (seq (token A)) :=
-  | nil_coh_l s :
-      seq_coh A [::] s
-  | nil_coh_r s :
-      seq_coh A s [::]
-  | cons_coh a b x y :
-      coh a b ->
-      (a = b -> seq_coh A x y) ->
-      seq_coh A (a :: x) (b :: y).
+Fixpoint seq_chf {A} (xs ys : seq (token A)) : three :=
+  match xs, ys with
+  | [::], [::] => Eq
+  | [::], _ => Coh
+  | _, [::] => Coh
+  | x::s1, y::s2 => match chf x y with
+                    | Coh => Coh
+                    | Eq => seq_chf s1 s2
+                    | Incoh => Incoh
+                    end
+  end.
 
-Lemma seq_coh_cons {A} x xs y ys :
-  seq_coh A (x::xs) (y::ys) -> coh x y /\ (x = y -> seq_coh A xs ys).
+Lemma seq_chf_eq {A} : Equality.axiom (fun a b : seq (token A) => seq_chf a b == Eq).
 Proof.
-move=>H; case: {-1}_ {-1}_ / H (erefl (x :: xs)) (erefl (y :: ys))=>//.
-by move=>p q ps qs H E [{x}->{xs}->][{y}->{ys}->].
+elim=>[|x s1 IH1]; case=>[|y s2] /=; try by constructor.
+case H: (chf x y).
+- have/chf_eq {}H: chf x y != Eq by rewrite H.
+  by constructor; case.
+- move/eqP/chf_eq: H=>->.
+  by apply: iffP; first by [apply: IH1]; [move=>-> | case].
+have/chf_eq {}H: chf x y != Eq by rewrite H.
+by constructor; case.
 Qed.
 
 Program Definition dag (A : space) : space :=
   {|
     token := seq (token A);
-    coh := seq_coh A;
+    chf := seq_chf;
   |}.
 Next Obligation.
-move=>A; elim=>[|x s IH]; first by apply: nil_coh_l.
-by apply: cons_coh=>//; apply: coh_refl.
+move=>A s t; elim: s t=>[|x s1 IH1] /=; first by case.
+by case=>//= y s2; rewrite chf_symm; case: (chf y x).
 Qed.
 Next Obligation.
-move=>A s t; elim=>{s t}[s|t|x y s t H H1 H2].
-- by apply: nil_coh_r.
-- by apply: nil_coh_l.
-apply: cons_coh; first by apply: coh_symm.
-by move=>E; apply: H2.
+move=>A; exact: seq_chf_eq.
 Qed.
 
 Notation "! A" := (dag A)
-  (at level 8, right associativity, format "'!' A") : coh_scope.
+  (at level 8, right associativity, format "'!' A") : chf_scope.
 
 (** *** Comonad structure *)
 
-Lemma prefix_coh {A} s1 s2 t1 t2 :
-  seq_coh A (s1 ++ t1) (s2 ++ t2) ->
-  seq_coh A s1 s2.
+Lemma cat_coh {A} (s : seq (token A)) t1 t2 :
+  seq_chf (s ++ t1) (s ++ t2) = seq_chf t1 t2.
 Proof.
-move E1: (s1 ++ t1)=>st1; move E2: (s2 ++ t2)=>st2.
-move=>H; elim: H s1 s2 E1 E2.
-- move=>p s1 s2 /nilP; rewrite cat_nilp; case/andP=>/nilP-> _ _.
-  by apply: nil_coh_l.
-- move=>p s1 s2 _ /nilP; rewrite cat_nilp; case/andP=>/nilP-> _.
-  by apply: nil_coh_r.
-move=>x y p q H E IH s1 s2.
-case: s1=>[|sx s1].
-- by move=>_ _; apply: nil_coh_l.
-case=>{sx}-> E1; case: s2=>[|sy s2].
-- by move=>_; apply: nil_coh_r.
-case=>{sy}-> E2; apply: cons_coh=>// Exy.
-by apply: (IH Exy _ _ E1 E2).
+elim: s=>//= x s H.
+by move/chf_eq/eqP: (erefl x)=>->.
 Qed.
 
-Lemma suffix_coh {A} s t1 t2 :
-  seq_coh A (s ++ t1) (s ++ t2) ->
-  seq_coh A t1 t2.
+Lemma cat_incoh {A} (s1 s2 : seq (token A)) t1 t2 :
+  seq_chf s1 s2 = Incoh ->
+  seq_chf (s1 ++ t1) (s2 ++ t2) = Incoh.
 Proof.
-elim: s=>//=x s IH H.
-by case/seq_coh_cons: H=>_ /(_ erefl)/IH.
-Qed.
-
-Lemma app_coh {A} s t1 t2 :
-  seq_coh A t1 t2 ->
-  seq_coh A (s ++ t1) (s ++ t2).
-Proof.
-move=>Ht; elim: s=>//= x s H.
-by apply: cons_coh=>//; apply: coh_refl.
+elim: s1 s2 =>[|x1 s1 IH]; case=>//= x2 s2.
+by case: (chf x1 x2)=>//; apply: IH.
 Qed.
 
 (** Action on linear maps *)
@@ -1185,22 +1168,19 @@ Program Definition dag_lmap {A B} (f : A --o B) : !A --o !B :=
     has '(aa, bb) := dag_lmaps f aa bb;
   |}.
 Next Obligation.
-move=>A B f [aa1 bb1][aa2 bb2] Hab1 Hab2 /= Hxx.
-elim: {aa1 aa2}Hxx bb1 bb2 Hab1 Hab2.
-- move=>p _ bb2 /dag_lmaps_lnil -> H2; split; first by apply: nil_coh_l.
-  by move=>E; rewrite -{bb2}E in H2; move/dag_lmaps_rnil: H2.
-- move=>q bb1 _ H1 /dag_lmaps_lnil ->; split; first by apply: nil_coh_r.
-  by move=>E; rewrite {bb1}E in H1; move/dag_lmaps_rnil: H1.
-move=>a b p q Hc H IH bb1 bb2.
-case/dag_lmaps_lcons=>b1[bs1][{bb1}-> H1 H11].
-case/dag_lmaps_lcons=>b2[bs2][{bb2}-> H2 H22].
-case: (lmap_cohdet _ _ _ _ _ Hc H1 H2)=>Cb E.
-split.
-- apply: cons_coh=>// /E Eab.
-  by case: (IH Eab _ _ H11 H22).
-case=>Eb Ebb; rewrite Eb in H1; rewrite {bs1}Ebb in H11.
-move: (E Eb)=>{Cb b1 E Eb}Eab; rewrite Eab.
-by case: (IH Eab _ _ H11 H22)=> _ /(_ erefl) ->.
+move=>A B f /= [aa1 bb1][aa2 bb2] Hab1 Hab2.
+elim: aa1 bb1 aa2 bb2 Hab1 Hab2=>[|a1 aa1 IH] bb1 aa2 bb2.
+- move=>/dag_lmaps_lnil->/=.
+  case: aa2=>/=.
+  - by move=>/dag_lmaps_lnil->.
+  by move=>a2 aa2 /dag_lmaps_lcons [b2][bb2'][->].
+case/dag_lmaps_lcons=>[b1][bb1'][{bb1}-> H1 Hd1] /=.
+case: aa2=>[|a2 aa2]; first by move=>/dag_lmaps_lnil->.
+case/dag_lmaps_lcons=>[b2][bb2'][{bb2}-> H2 Hd2].
+move: (has_coh _ _ _ _ H1 H2)=>/=.
+case E1: (chf a1 a2)=>//=; case E2: (chf b1 b2)=>//= _.
+- by apply: coh_imp_coh.
+by apply: IH.
 Qed.
 
 Notation "! f" := (dag_lmap f)
@@ -1238,8 +1218,8 @@ Program Definition dag_counit A : !A --o A :=
     has '(aa, a) := dag_counit_lmaps A aa a;
   |}.
 Next Obligation.
-move=>A /= [x1 _][x2 _][t1][t2] Hx; split; last by move=>->.
-by case/seq_coh_cons: Hx.
+move=>A /= [x1 _][x2 _][t1][t2] /=.
+by case: (chf t1 t2).
 Qed.
 
 Lemma dag_counit_natural {A B} (f : A --o B) :
@@ -1281,20 +1261,22 @@ Program Definition dag_comult A : !A --o !!A :=
     has '(a, aa) := dag_comult_lmaps a aa;
   |}.
 Next Obligation.
-move=>A /= [a1 aa1][a2 aa2] H1 H2 Ha.
-elim: H1 a2 aa2 Ha H2 => {a1 aa1}.
-- move=>a2 aa2 Ha H2; split; first by apply: nil_coh_l.
-  by case: H2.
-move=>/= s1 a1 aa1 H1 IH a2 aa2 Ha H2.
-elim: H2 Ha=>{a2 aa2}.
-- by move=>_; split=>//; apply: nil_coh_r.
-move=>s2 a2 aa2 H2 IH2 Ha; split.
-- apply: cons_coh.
-  - by apply: (prefix_coh _ _ _ _ Ha).
-  move=>E; rewrite {s1}E in Ha IH2.
-  by move/suffix_coh: Ha=>/IH/(_ H2); case.
-case=>E1 E2; rewrite {s1 IH2}E1 in Ha *.
-by move/suffix_coh: Ha=>/IH/(_ H2); case=>_ /(_ E2) ->.
+move=>A /= [a1 aa1][a2 aa2] H1 H2.
+elim: aa1 aa2 a1 a2 H1 H2=>[|x1 aa1 IH] aa2 a1 a2.
+- move/dag_comult_rnil=>->.
+  case: aa2.
+  - by move/dag_comult_rnil=>->.
+  by move=>x2 aa2 _; apply: coh_imp_coh.
+case/dag_comult_rcons=>s1[{a1}-> H1].
+case: aa2=>[|x2 aa2].
+- by move=>_ /=; exact: coh_imp_coh.
+case/dag_comult_rcons=>s2[{a2}-> H2] /=.
+move: (IH _ _ _ H1 H2)=>H.
+case E: (seq_chf x1 x2).
+- by exact: coh_imp_coh.
+- move/eqP/seq_chf_eq: E=>->.
+  by rewrite cat_coh.
+by rewrite cat_incoh.
 Qed.
 
 (* TODO move under dag_lmaps? *)
