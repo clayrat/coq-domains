@@ -818,7 +818,7 @@ Infix ";;" := sequ_lmap : lmap_scope.
 (** ** Exponential *)
 
 (* finite clique *)
-
+(* shouldn't this actually relate all possible pairs? *)
 Inductive seq_coh (A : space) : relation (seq (token A)) :=
   | nil_coh_l s :
       seq_coh A [::] s

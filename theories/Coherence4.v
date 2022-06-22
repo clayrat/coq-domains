@@ -166,10 +166,10 @@ Definition prod4 (a b : four) : four :=
 Lemma prod_eql a : prod4 a Unit = a.
 Proof. by case: a. Qed.
 
-(* is this correct? *)
 Definition imp4 (e1 e2 : four) : four :=
   match e1, e2 with
-  | Incoh, _     => Coh
+  | Coh  , Coh   => Coh
+  | Coh  , _     => Incoh
   | Bot  , Coh   => Coh
   | Bot  , Bot   => Unit
   | Bot  , _     => Incoh
@@ -177,8 +177,7 @@ Definition imp4 (e1 e2 : four) : four :=
   | Unit , Bot   => Bot
   | Unit , Unit  => Unit
   | Unit , Incoh => Incoh
-  | Coh  , Coh   => Coh
-  | Coh  , _     => Incoh
+  | Incoh, _     => Coh
   end.
 
 Lemma coh_imp_refl a : is_coh (imp4 a a).
@@ -215,20 +214,22 @@ Lemma coh_imp_neg a b :
   is_coh (imp4 a b) -> is_coh (imp4 (neg4 b) (neg4 a)).
 Proof. by case: a; case: b. Qed.
 
-(* is this correct? *)
 Definition par4 (e1 e2 : four) : four :=
   match e1, e2 with
   | Coh  , _     => Coh
-  | Unit , Coh   => Coh
-  | Unit , Bot   => Unit
-  | Unit , _     => Incoh
   | Bot  , Coh   => Coh
   | Bot  , Unit  => Unit
   | Bot  , Bot   => Bot
   | Bot  , Incoh => Incoh
+  | Unit , Coh   => Coh
+  | Unit , Bot   => Unit
+  | Unit , _     => Incoh
   | Incoh, Coh   => Coh
   | Incoh, _     => Incoh
   end.
+
+Lemma par_neg a b : neg4 (par4 a b) = prod4 (neg4 a) (neg4 b).
+Proof. by case: a; case: b. Qed.
 
 Lemma par_eql a : par4 a Bot = a.
 Proof. by case: a. Qed.
@@ -255,7 +256,7 @@ Record space :=
     token : Type;          (* can be made a countType (Ehrhard, Jafar-Rahmani, 2019) *)
     chf : token -> token -> four;
     chf_symm: forall a b, chf a b = chf b a;
-    (*chf_eq: Equality.axiom (fun a b => chf a b == Eq);*)
+    (*chf_ub: forall a, is_coh (chf a a);*)
   }.
 
 Arguments chf {_}.
@@ -359,6 +360,12 @@ Next Obligation.
 move=>A B [a1 b1][a2 b2].
 by rewrite (chf_symm _ a2 a1) (chf_symm _ b2 b1).
 Qed.
+(*
+Next Obligation.
+move=>A B [a b]=>/=.
+case/or3P: (chf_ub _ a)=>/eqP->; case/or3P: (chf_ub _ b)=>/eqP-> //.
+Qed.
+*)
 (*
 Next Obligation.
 move=>A B [a1 b1][a2 b2].
@@ -678,6 +685,12 @@ by rewrite (chf_symm _ a2 a1) (chf_symm _ b2 b1).
 Qed.
 (*
 Next Obligation.
+move=>A B [a b]=>/=.
+by move/eqP: (chf_ub _ a)=>->; move/eqP: (chf_ub _ b)=>->/=.
+Qed.
+*)
+(*
+Next Obligation.
 move=>A B [a1 b1][a2 b2].
 case E1: (chf a1 a2)=>/=.
 - have/chf_eq {}E1: chf a1 a2 != Eq by rewrite E1.
@@ -780,6 +793,12 @@ Program Definition lneg (A : space) : space :=
 Next Obligation.
 by move=>A [x][y]; rewrite chf_symm.
 Qed.
+(*
+Next Obligation.
+move=>A [a]/=.
+move/eqP: (chf_ub _ a)=>->/=. move/eqP: (chf_ub _ b)=>->/=.
+Qed.
+*)
 (*
 Next Obligation.
 move=>A [x][y]; case E: (chf x y)=>/=; constructor.
@@ -1140,7 +1159,7 @@ Qed.
 (** * Sequential constructions *)
 
 (** ** Composition *)
-
+(*
 Program Definition sequ (A B : space) : space :=
   {|
     token := token A * token B;
@@ -1181,23 +1200,24 @@ by exact: coh_imp_seq.
 Qed.
 
 Infix ";;" := sequ_lmap : lmap_scope.
-
+*)
 (** ** Exponential *)
 
 (* finite clique *)
 
 Fixpoint seq_chf {A} (xs ys : seq (token A)) : four :=
   match xs, ys with
-  | [::], [::] => Eq
   | [::], _ => Coh
   | _, [::] => Coh
   | x::s1, y::s2 => match chf x y with
                     | Coh => Coh
-                    | Eq => seq_chf s1 s2
                     | Incoh => Incoh
+                    | _ => seq_chf s1 s2
                     end
   end.
 
+
+(*
 Lemma seq_chf_eq {A} : Equality.axiom (fun a b : seq (token A) => seq_chf a b == Eq).
 Proof.
 elim=>[|x s1 IH1]; case=>[|y s2] /=; try by constructor.
@@ -1209,7 +1229,7 @@ case H: (chf x y).
 have/chf_eq {}H: chf x y != Eq by rewrite H.
 by constructor; case.
 Qed.
-
+*)
 Program Definition dag (A : space) : space :=
   {|
     token := seq (token A);
@@ -1219,27 +1239,31 @@ Next Obligation.
 move=>A s t; elim: s t=>[|x s1 IH1] /=; first by case.
 by case=>//= y s2; rewrite chf_symm; case: (chf y x).
 Qed.
+(*
 Next Obligation.
 move=>A; exact: seq_chf_eq.
 Qed.
-
+*)
 Notation "! A" := (dag A)
   (at level 8, right associativity, format "'!' A") : chf_scope.
 
 (** *** Comonad structure *)
-
+(*
 Lemma cat_coh {A} (s : seq (token A)) t1 t2 :
   seq_chf (s ++ t1) (s ++ t2) = seq_chf t1 t2.
 Proof.
+by elim: s.
+(*
 elim: s=>//= x s H.
 by move/chf_eq/eqP: (erefl x)=>->.
+*)
 Qed.
-
+*)
 Lemma cat_incoh {A} (s1 s2 : seq (token A)) t1 t2 :
   seq_chf s1 s2 = Incoh ->
   seq_chf (s1 ++ t1) (s2 ++ t2) = Incoh.
 Proof.
-elim: s1 s2 =>[|x1 s1 IH]; case=>//= x2 s2.
+elim: s1 s2 =>[|x1 s1 IH]; case =>//= x2 s2.
 by case: (chf x1 x2)=>//; apply: IH.
 Qed.
 
@@ -1294,6 +1318,21 @@ Program Definition dag_lmap {A B} (f : A --o B) : !A --o !B :=
 Next Obligation.
 move=>A B f /= [aa1 bb1][aa2 bb2] Hab1 Hab2.
 elim: aa1 bb1 aa2 bb2 Hab1 Hab2=>[|a1 aa1 IH] bb1 aa2 bb2.
+- by move=>/dag_lmaps_lnil->.
+case/dag_lmaps_lcons=>[b1][bb1'][{bb1}-> H1 Hd1] /=.
+case: aa2=>[|a2 aa2]; first by move=>/dag_lmaps_lnil->.
+case/dag_lmaps_lcons=>[b2][bb2'][{bb2}-> H2 Hd2].
+move: (has_coh _ _ _ _ H1 H2)=>/=.
+case E1: (chf a1 a2)=>//=; case E2: (chf b1 b2)=>//= _.
+- apply: coh_imp_coh.
+- by apply: IH.
+- apply: coh_imp_coh.
+- by apply: IH.
+by apply: IH.
+Qed.
+
+
+(*
 - move=>/dag_lmaps_lnil->/=.
   case: aa2=>/=.
   - by move=>/dag_lmaps_lnil->.
@@ -1302,11 +1341,11 @@ case/dag_lmaps_lcons=>[b1][bb1'][{bb1}-> H1 Hd1] /=.
 case: aa2=>[|a2 aa2]; first by move=>/dag_lmaps_lnil->.
 case/dag_lmaps_lcons=>[b2][bb2'][{bb2}-> H2 Hd2].
 move: (has_coh _ _ _ _ H1 H2)=>/=.
-case E1: (chf a1 a2)=>//=; case E2: (chf b1 b2)=>//= _.
-- by apply: coh_imp_coh.
-by apply: IH.
+by case E1: (chf a1 a2)=>//=; case E2: (chf b1 b2)=>//= _; apply: IH.
+(*- by apply: coh_imp_coh.
+by apply: IH.*)
 Qed.
-
+*)
 Notation "! f" := (dag_lmap f)
   (at level 8, right associativity, format "'!' f") : clique_scope.
 
@@ -1332,18 +1371,22 @@ Qed.
 
 (** Counit *)
 
-Inductive dag_counit_lmaps A : token !A -> token A -> Prop :=
+Variant dag_counit_lmaps A : token !A -> token A -> Prop :=
   dag_counit_intro a : dag_counit_lmaps A [::a] a.
 
 (* aka dereliction *)
 
+(* TODO stuck here *)
+(* seq_chf [::x][::y] should be = chf x y for this to work *)
+(* this implies we should backtrack on reaching [::] and combine values *)
+(* but how to combine e.g. bot and unit? *)
 Program Definition dag_counit A : !A --o A :=
   {|
     has '(aa, a) := dag_counit_lmaps A aa a;
   |}.
 Next Obligation.
 move=>A /= [x1 _][x2 _][t1][t2] /=.
-by case: (chf t1 t2).
+case: (chf t1 t2).
 Qed.
 
 Lemma dag_counit_natural {A B} (f : A --o B) :
